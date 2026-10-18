@@ -1,0 +1,73 @@
+{
+  "printers": [
+    {
+      "id": "printer-1",
+      "name": "Klipper Core (Primary)",
+      "type": "moonraker",
+      "host": "192.168.1.103",
+      "port": 7125,
+      "api_key": "",
+      "webcam_url": "http://192.168.1.103/webcam/?action=stream",
+      "enabled": true,
+      "notes": "Primary Sovol/Voron rig"
+    },
+    {
+      "id": "printer-2",
+      "name": "Secondary Rig (In Progress)",
+      "type": "moonraker",
+      "host": "192.168.1.104",
+      "port": 7125,
+      "api_key": "",
+      "webcam_url": "",
+      "enabled": false,
+      "notes": "Nearly operational, calibrating Eddy/probe"
+    }
+  ],
+  "calendar": {
+    "ical_url": "",
+    "refresh_interval_minutes": 5,
+    "include_mock_if_empty": true
+  },
+  "local_events": [
+    {
+      "id": "mock-1",
+      "title": "Workshop Machine Calibration & Test Print",
+      "start": "2026-09-16T18:00:00",
+      "end": "2026-09-16T19:30:00",
+      "location": "Workshop",
+      "description": "First layer checks on new nozzle."
+    },
+    {
+      "id": "mock-2",
+      "title": "Team Sync / Catchup",
+      "start": "2026-09-17T10:00:00",
+      "end": "2026-09-17T11:00:00",
+      "location": "Google Meet",
+      "description": "Weekly status meeting."
+    },
+    {
+      "id": "mock-3",
+      "title": "Project Review & Logistics",
+      "start": "2026-09-17T14:30:00",
+      "end": "2026-09-17T15:30:00",
+      "location": "Office",
+      "description": "Review CAD designs and shipping updates."
+    }
+  ],
+  "pa_settings": {
+    "persona": "Havoc",
+    "voice_alert_enabled": false,
+    "collision_buffer_minutes": 15
+  },
+  "ai_config": {
+    "provider": "gemini",
+    "model": "gemini-2.5-flash",
+    "custom_url": "",
+    "provider_keys": {
+      "gemini": "",
+      "groq": "",
+      "openai": "",
+      "custom": ""
+    }
+  }
+}

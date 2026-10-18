@@ -1,0 +1,21 @@
+# Secrets - never commit or zip these
+backend/data/config.json
+backend/data/access_token.txt
+.env
+*.env
+
+# Local state (personal data lives here)
+backend/data/*.json
+!backend/data/config.example.json
+backend/data/*.tmp
+
+# Python
+__pycache__/
+*.pyc
+
+# Front end
+frontend/node_modules/
+
+# Upgrade backups and archives
+_backup_*/
+*.zip
