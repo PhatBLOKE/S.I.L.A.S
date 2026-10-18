@@ -1,6 +1,6 @@
 # SILAS // Secure Interface for Local & Autonomous Systems
 
-Karl's private, self-hosted command centre for an ADHD brain. One screen shows:
+A private, self-hosted command centre for an ADHD brain. One screen shows:
 - **what to do right now**: the Now project, today's time blocks, Todoist tasks as tiles
 - **the printers**: live status, alerts and a siren when a print stops
 - **the day**: the calendar, with warnings when a print will clash with it
