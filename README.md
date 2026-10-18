@@ -79,7 +79,7 @@ Click **+ ADD MACHINE** and fill in:
 
 **What you can see and do**
 - Live temperatures with targets.
-- Every toolhead: `extruderN` is discovered automatically, so the 10-tool changer shows T0–T9.
+- Every toolhead is discovered automatically, so the U1 changer shows T0–T3.
 - Progress, layer, time remaining, and a blended ETA with a confidence level.
 - One-click preheat (PLA 210/60 °C, PETG 245/80 °C), pause, resume, cancel and E-stop (`M112`).
 - Tool changes are locked while a job is printing or paused.
