@@ -1,21 +1,20 @@
-# Secrets - never commit or zip these
+# Secrets & local state - never commit or zip these
 backend/data/config.json
 backend/data/access_token.txt
-.env
-*.env
-
-# Local state (personal data lives here)
-backend/data/*.json
-!backend/data/config.example.json
 backend/data/*.tmp
-
-# Python
 __pycache__/
 *.pyc
-
-# Front end
 frontend/node_modules/
+backend/data/alerts.json
+backend/data/undo_history.json
+backend/data/pip_diary.json
+backend/data/learning.json
+backend/data/ai_usage.json
 
-# Upgrade backups and archives
+# Upgrade backups and local bundles
 _backup_*/
 *.zip
+backend/data/*.json.tmp
+
+# Test caches
+.pytest_cache/

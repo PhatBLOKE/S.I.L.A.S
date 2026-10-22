@@ -143,8 +143,9 @@ function Tile({ tone = 'sky', className = '', onClick, children, drop, label, ..
   return (
     <div
       aria-label={label}
+      data-tone={tone}
       {...clickable}
-      className={`relative text-left rounded-lg border-2 ${t.ring} ${t.bg} ${t.glow} p-4 flex flex-col gap-2 min-w-0 min-h-[140px] transition ${onClick ? 'cursor-pointer' : ''} focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 ${drop ? '!border-cyan-300 scale-[1.02]' : ''} ${className}`}
+      className={`silas-tile relative text-left rounded-lg border-2 ${t.ring} ${t.bg} ${t.glow} p-4 flex flex-col gap-2 min-w-0 min-h-[140px] transition ${onClick ? 'cursor-pointer' : ''} focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300 ${drop ? '!border-cyan-300 scale-[1.02]' : ''} ${className}`}
       {...rest}
     >
       {children}
@@ -153,7 +154,7 @@ function Tile({ tone = 'sky', className = '', onClick, children, drop, label, ..
 }
 const TileHead = ({ tone, icon, label, right }) => (
   <div className="flex items-center justify-between gap-2 font-mono">
-    <span className={`text-[11px] tracking-[0.2em] font-bold ${TONE[tone]?.text || ''}`}>{icon} {label}</span>
+    <span className={`silas-tilehead text-[11px] tracking-[0.2em] font-bold ${TONE[tone]?.text || ''}`}>{icon} {label}</span>
     {right !== undefined && <span className="text-[11px] text-slate-400 tabular-nums">{right}</span>}
   </div>
 );
@@ -340,7 +341,7 @@ function AddTile({ label, onAdd, tone = 'slate' }) {
   if (!open) {
     return (
       <button type="button" onClick={() => setOpen(true)}
-        className="rounded-lg border-2 border-dashed border-slate-700 hover:border-cyan-500 text-slate-500 hover:text-cyan-300 min-h-[150px] flex flex-col items-center justify-center gap-1 font-mono">
+        className="silas-addtile rounded-lg border-2 border-dashed border-slate-700 hover:border-cyan-500 text-slate-500 hover:text-cyan-300 min-h-[150px] flex flex-col items-center justify-center gap-1 font-mono">
         <span className="text-3xl leading-none">+</span>
         <span className="text-[11px] tracking-widest">{label}</span>
       </button>

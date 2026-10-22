@@ -33,6 +33,7 @@ from .ai_companion import get_ai_response, analyze_printer_telemetry
 from .drive_commander import router as drive_router
 from .todoist import router as todoist_router, close_client as close_todoist_client
 from .pip_diary import router as pip_router
+from .learning import router as learning_router
 
 def get_local_ip() -> str:
     try:
@@ -105,6 +106,9 @@ app.include_router(todoist_router)
 
 # PIP diary daily log (TODAY tab), stored in backend/data/pip_diary.json
 app.include_router(pip_router)
+
+# LEARN tab: learning by style + Pomodoro sessions, stored in backend/data/learning.json
+app.include_router(learning_router)
 
 
 # Request Models

@@ -1,7 +1,11 @@
 # SILAS // Secure Interface for Local & Autonomous Systems
 
+**Version 2.5.0** · see [CHANGELOG.md](CHANGELOG.md) for what's new.
+
 A private, self-hosted command centre for an ADHD brain. One screen shows:
 - **what to do right now**: the Now project, today's time blocks, Todoist tasks as tiles
+- **the PIP diary**: a 30-second daily log of sleep, pain, meds and struggles
+- **learning**: sorted by style, studied in Pomodoro rounds
 - **the printers**: live status, alerts and a siren when a print stops
 - **the day**: the calendar, with warnings when a print will clash with it
 - **Silas**: a sarcastic, TARS-style AI co-pilot who nudges you back on task
@@ -15,22 +19,26 @@ Everything runs locally on this PC at `http://localhost:8000`. Nothing is hosted
 | To… | Do this |
 |---|---|
 | Start SILAS | Double-click `run_jarvis.bat` (starts the server and opens an Edge app window) |
+| Run full screen, like a proper program (no title bar or taskbar) | Double-click `silas_fullscreen.bat`, or the **SILAS Fullscreen** desktop icon. **Alt+F4** quits. Inside SILAS, ⋮ → **Full screen** (or F11) toggles it. |
 | Restart SILAS, or fix "wrong version showing" | Double-click `restart_havoc.bat` (stops whatever holds port 8000, then starts this copy) |
-| Point the desktop icon at this folder | Right-click `create_shortcut.ps1` → **Run with PowerShell** |
+| Make the desktop icons ("Silas Console" and "SILAS Fullscreen") | Right-click `create_shortcut.ps1` → **Run with PowerShell** |
 | Bring settings across from an older copy | `switch_to_v2.3.bat` (runs `copy_settings_from_old.ps1`) |
 
 The first run installs the Python packages listed in `backend/requirements.txt`.
+
+The full-screen window uses its own Edge profile (`%LOCALAPPDATA%\SILAS\EdgeKiosk`), so the first time you open it, theme and panel choices start at their defaults. Set them once in ⋮ → Preferences.
 When started from `run_jarvis.bat` the server reloads by itself when backend files change.
 
 ---
 
 ## 🧭 Layout
 
-**Top bar keys:** MISSION · TODAY · FLEET · SCHEDULE · DRIVES · AI USAGE
+**Top bar keys:** MISSION · TODAY · FLEET · LEARN · SCHEDULE · DRIVES · AI USAGE
 
 - The **SILAS** co-pilot key hides while the chat is on Mission Control. Open the full-screen chat with **⤢** on the chat box.
 - **⋮ menu:**
   - **Mobile View**: the LAN link for other devices
+  - **Full screen**: hides the taskbar
   - **Preferences**: colours, fonts, panel order, AI keys
 - **Sync Google Cal** and **+ Add Machine** sit under the keys.
 
@@ -70,6 +78,61 @@ Todoist stays the master copy. SILAS reads and writes it live.
 
 ---
 
+## ♥ PIP diary
+
+A quick daily log for the PIP claim. It sits on the **TODAY** tab and saves privately to `backend/data/pip_diary.json` on this PC.
+
+**Logging a day:** tap **♥ LOG TODAY** and fill in what applies. Everything is tap buttons, and anything can be skipped.
+- Sleep: 1–9+ hours.
+- Back pain and leg pain: 0–10, coloured green, amber or red.
+- Mood: five levels.
+- Meds: Morning (6am), Afternoon booster and Evening (8pm). Tap once for taken, twice for missed, a third time to clear.
+- **Struggled with today:** the 12 PIP activities, from preparing food and washing to planning journeys and moving around.
+- **What happened:** an optional note in your own words.
+
+**The diary tile shows**
+- The last 7 days as mini tiles, with back/leg pain and sleep. Tap a day to fill it in or fix it.
+- Whether today is logged, and your streak. After 17:00 the tile glows if today isn't logged yet.
+
+**Getting it into the full diary**
+- **⧉ COPY LAST 7 DAYS:** copies the week as text. Paste it into "Karl's PIP Diary", or give it to Claude to log properly.
+- **OPEN DIARY DOC ↗:** opens the full diary on claude.ai.
+
+**Privacy:** `pip_diary.json` is in `.gitignore`. Never zip or share it.
+
+---
+
+## 🎓 Learn (Pomodoro)
+
+**1. Pick your energy.** SILAS suggests what to study and how long the rounds should be:
+
+| Energy | Pomodoro | Styles it suggests |
+|---|---|---|
+| 🔋 LOW: foggy, sore or tired | **Short**: 15 on, 5 off, long break after 4 | Watch, Listen, Recall |
+| ⚡ OK: a normal day | **Classic**: 25 on, 5 off, long break after 4 | Course, Read, Practise |
+| 🚀 HIGH: sharp | **Deep**: 45 on, 10 off, long break after 3 | Build it, Practise, Course |
+
+You can override the round length with the SHORT / CLASSIC / DEEP buttons.
+
+**2. Press ▶ START.** The timer goes full screen, with the topic, your next step, and the rounds shown as 🍅.
+- Controls: pause, +5 min, skip break, minimise and stop.
+- It chimes at the end of each round and break, with a desktop pop-up if you allow it.
+- Switch tabs and the timer keeps running as a pill bottom-right. Tap it to come back.
+
+**3. When a round ends, log it.** Say what you got done (optional), update the next step and set how far through you are. Then take the break; it's part of the method. Stopping early still logs the round if it ran for 5 minutes or more.
+
+**Styles of learning:** 🎬 Watch · 🎧 Listen · 🧠 Recall · 📖 Read · 🎓 Course · ✏️ Practise · 🛠️ Build it. Tap a style tile to see only those items. Give each item every style that fits it.
+
+**Learning tiles** show the category, status, next step, a progress bar, hours done (added up from your rounds) and a ▶ START button. Tap a tile to edit it, or **+ ADD** a new one.
+
+**Progress tile:** 🍅 today, hours this week, a day streak and a 7-day chart. It nudges you after 3 days without a round.
+
+**📅 Book it for later today** puts the study block on your Schedule, so the collision radar knows about it.
+
+Data is stored in `backend/data/learning.json`. The fields match the planned Master Learning spreadsheet, so a sheet can be imported later.
+
+---
+
 ## 🖨️ Fleet
 
 Click **+ ADD MACHINE** and fill in:
@@ -79,7 +142,7 @@ Click **+ ADD MACHINE** and fill in:
 
 **What you can see and do**
 - Live temperatures with targets.
-- Every toolhead is discovered automatically, so the U1 changer shows T0–T3.
+- Every toolhead is discovered automatically, 
 - Progress, layer, time remaining, and a blended ETA with a confidence level.
 - One-click preheat (PLA 210/60 °C, PETG 245/80 °C), pause, resume, cancel and E-stop (`M112`).
 - Tool changes are locked while a job is printing or paused.
@@ -179,6 +242,8 @@ Devices without the token get a locked page.
 These are in `.gitignore`. **Never zip or share them:**
 - `backend/data/config.json`: printer keys, the iCal secret, AI keys, the Todoist token
 - `backend/data/access_token.txt`
+- `backend/data/pip_diary.json`: your health log
+- `backend/data/learning.json`: your learning list and study log
 
 `backend/data/config.example.json` is the safe template.
 
@@ -188,12 +253,15 @@ These are in `.gitignore`. **Never zip or share them:**
 
 ```
 SILAS/
-├─ run_jarvis.bat / restart_havoc.bat / create_shortcut.ps1
+├─ run_jarvis.bat / restart_havoc.bat / silas_fullscreen.bat / create_shortcut.ps1
+├─ README.md, CHANGELOG.md
 ├─ HavocConsole.exe, HavocLauncher.cs   desktop launcher (name is compiled in)
 ├─ backend/                              FastAPI server
 │  ├─ app.py            routes + serves the built UI
 │  ├─ hub.py            background loop, WebSocket /ws snapshots
 │  ├─ todoist.py        Todoist link (/api/todoist/*)
+│  ├─ pip_diary.py      PIP daily log (/api/pip/*)
+│  ├─ learning.py       LEARN tab + Pomodoro log (/api/learning/*)
 │  ├─ ai_companion.py   Silas chat + offline brain
 │  ├─ alerts.py         alert centre + siren rules
 │  ├─ drive_commander.py, ai_usage.py, pa_intelligence.py, security.py, config.py
@@ -204,6 +272,8 @@ SILAS/
 └─ frontend/            React + Vite (Tailwind via CDN)
    ├─ src/App.jsx       shell, nav, Mission Control
    ├─ src/Todo.jsx      TODAY tab + focus tiles
+   ├─ src/Pip.jsx       PIP diary tile + log form
+   ├─ src/Learn.jsx     LEARN tab, Pomodoro timer + floating pill
    ├─ src/AIUsage.jsx, src/DrivesManager.jsx, src/index.css
    └─ dist/             built UI that the server actually serves
 ```
@@ -244,4 +314,30 @@ python -m pytest backend/tests -q
 | TODAY says the token was rejected | Paste a fresh token from Todoist → Settings → Integrations → Developer, using **⚙ LINK** on the TODAY tab. |
 | Siren silent | Click once anywhere on SILAS (the browser needs a click before it may play sound). Check **ALERTS → Test siren**. |
 
-Backups of files changed during upgrades are in `_backup_pre_todo/` and `_backup_pre_silas/`.
+Backups of files changed during upgrades are in `_backup_pre_todo/`, `_backup_pre_silas/` and `_backup_pre_pip/`.
+
+---
+
+## 🚀 Publishing to GitHub
+
+Before the first push, check that **none** of these are included. `.gitignore` already excludes them:
+- `backend/data/config.json`
+- `backend/data/access_token.txt`
+- `backend/data/pip_diary.json`
+- `backend/data/learning.json`
+- `alerts.json`
+- `undo_history.json`
+- `ai_usage.json`
+- the `_backup_*` folders
+- `*.zip`
+- `frontend/node_modules`
+
+Run `git status` and make sure no `backend/data/*.json` file is listed except `config.example.json`.
+
+**Making a release:**
+1. Add a new section at the top of `CHANGELOG.md`.
+2. Bump the version line at the top of this README.
+3. Commit, then tag it, e.g. `git tag v2.5.0`.
+4. Push with tags: `git push --follow-tags`.
+
+**Repo link:** replace `OWNER` in the links at the bottom of `CHANGELOG.md` with your GitHub username once the repo exists.

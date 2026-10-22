@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import DrivesManager from './DrivesManager';
 import AIUsage from './AIUsage';
 import TodoBoard, { FocusStrip } from './Todo';
+import LearnBoard, { PomodoroPill } from './Learn';
+import ScreenGuard, { useScreenGuardSettings, ScreenGuardSettings } from './ScreenGuard';
 
 const API_BASE = '/api';
 const KEY_MASK = '\u2022';
@@ -19,17 +21,74 @@ const persistAiPrefs = (cfg) => {
   } catch (e) {}
 };
 // ---- Printer alert helpers -------------------------------------------------
+// Two sound styles, both pure Web Audio (no files):
+//   'starship' (default) - console chirps and a red-alert style rising whoop
+//   'classic'            - the original square-wave beeps and wailing siren
 let alarmCtx = null;
+const SOUND_STYLE_KEY = 'silas_alarm_style';
+const getSoundStyle = () => {
+  try { return localStorage.getItem(SOUND_STYLE_KEY) === 'classic' ? 'classic' : 'starship'; } catch (e) { return 'starship'; }
+};
+const getAudio = () => {
+  alarmCtx = alarmCtx || new (window.AudioContext || window.webkitAudioContext)();
+  if (alarmCtx.state === 'suspended') alarmCtx.resume().catch(() => {});
+  return alarmCtx;
+};
+
+// One console chirp: a short sine blip that glides between two pitches.
+const chirp = (ctx, t, f1, f2, len = 0.11, vol = 0.14) => {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(f1, t);
+  osc.frequency.exponentialRampToValueAtTime(f2, t + len);
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(vol, t + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + len);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(t);
+  osc.stop(t + len + 0.02);
+};
+
+// One red-alert whoop: two detuned brassy oscillators sweeping upwards.
+const whoop = (ctx, t, vol = 0.22, len = 0.5) => {
+  const tone = ctx.createBiquadFilter();
+  tone.type = 'lowpass';
+  tone.frequency.value = 2200;
+  tone.Q.value = 3;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0.0001, t);
+  gain.gain.exponentialRampToValueAtTime(vol, t + 0.04);
+  gain.gain.setValueAtTime(vol, t + len - 0.08);
+  gain.gain.exponentialRampToValueAtTime(0.0001, t + len);
+  tone.connect(gain).connect(ctx.destination);
+  [['square', 0], ['sawtooth', 7]].forEach(([type, detune]) => {
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.detune.value = detune;
+    osc.frequency.setValueAtTime(330, t);
+    osc.frequency.exponentialRampToValueAtTime(700, t + len);
+    osc.connect(tone);
+    osc.start(t);
+    osc.stop(t + len + 0.02);
+  });
+};
+
 const playAlarm = (severity) => {
-  // Short synthesized klaxon; no audio files needed. Browsers only allow sound after
-  // the page has had a click, which the Edge app window always has.
+  // Short alert sound. Browsers only allow sound after the page has had a click,
+  // which the Edge app window always has.
   try {
-    alarmCtx = alarmCtx || new (window.AudioContext || window.webkitAudioContext)();
-    const ctx = alarmCtx;
-    if (ctx.state === 'suspended') ctx.resume();
+    const ctx = getAudio();
+    const now = ctx.currentTime;
+    if (getSoundStyle() === 'starship') {
+      if (severity === 'critical') { whoop(ctx, now, 0.18); whoop(ctx, now + 0.75, 0.18); }
+      else if (severity === 'info') { chirp(ctx, now, 1200, 1500); chirp(ctx, now + 0.13, 1500, 1900); }
+      else { chirp(ctx, now, 880, 660, 0.16); chirp(ctx, now + 0.2, 880, 660, 0.16); chirp(ctx, now + 0.4, 1100, 880, 0.2); }
+      return;
+    }
     const pattern = severity === 'critical' ? [880, 660, 880, 660, 880, 660] : severity === 'info' ? [660, 880, 1320] : [740, 990];
     pattern.forEach((freq, i) => {
-      const t = ctx.currentTime + i * 0.18;
+      const t = now + i * 0.18;
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.type = 'square';
@@ -45,53 +104,169 @@ const playAlarm = (severity) => {
 };
 
 // ---- Siren -------------------------------------------------------------------
-// Loud wailing siren for "your print has stopped" alerts. Keeps going until every siren
-// alert is acknowledged or silenced. Pure Web Audio (no files): a sawtooth swept
-// 500-1400 Hz by a slow LFO, so it keeps wailing even if the window is in the background.
+// Loud alarm for "your print has stopped" alerts. Keeps going until every siren alert
+// is acknowledged or silenced. Built only from free-running oscillators (no timers),
+// so it keeps sounding even when the window is in the background.
 const SIREN_VOLUME = 0.5;
 let sirenNodes = null;
-const getAudio = () => {
-  alarmCtx = alarmCtx || new (window.AudioContext || window.webkitAudioContext)();
-  if (alarmCtx.state === 'suspended') alarmCtx.resume().catch(() => {});
-  return alarmCtx;
+
+// Classic: a sawtooth swept 500-1400 Hz by a slow LFO.
+const buildClassicSiren = (ctx, out) => {
+  const osc = ctx.createOscillator();
+  osc.type = 'sawtooth';
+  osc.frequency.value = 950;
+  const lfo = ctx.createOscillator();
+  lfo.type = 'triangle';
+  lfo.frequency.value = 0.45;
+  const depth = ctx.createGain();
+  depth.gain.value = 450;
+  lfo.connect(depth).connect(osc.frequency);
+  const tone = ctx.createBiquadFilter();
+  tone.type = 'lowpass';
+  tone.frequency.value = 3200;
+  osc.connect(tone).connect(out);
+  osc.start();
+  lfo.start();
+  return [osc, lfo];
 };
+
+// Starship: a rising whoop about once a second with a gap between pulses.
+// A rising-sawtooth LFO sweeps the pitch upwards each cycle; a square LFO in step
+// with it gates the sound on for the half of each cycle where the pitch climbs 350-700 Hz.
+const STARSHIP_RATE = 1.05; // whoops per second
+const buildStarshipSiren = (ctx, out) => {
+  const sweep = ctx.createOscillator();
+  sweep.type = 'sawtooth';
+  sweep.frequency.value = STARSHIP_RATE;
+  const sweepDepth = ctx.createGain();
+  sweepDepth.gain.value = 350;
+  sweep.connect(sweepDepth);
+
+  const tone = ctx.createBiquadFilter();
+  tone.type = 'lowpass';
+  tone.frequency.value = 2200;
+  tone.Q.value = 3;
+  const voices = [['square', 0], ['sawtooth', 7]].map(([type, detune]) => {
+    const osc = ctx.createOscillator();
+    osc.type = type;
+    osc.frequency.value = 350; // the sweep adds 0..+350 Hz while the gate is open
+    osc.detune.value = detune;
+    sweepDepth.connect(osc.frequency);
+    osc.connect(tone);
+    return osc;
+  });
+
+  // Gate: 0.5 + 0.5 * square -> 1 for the first half of each cycle, 0 for the second,
+  // smoothed so the edges don't click.
+  const gate = ctx.createGain();
+  gate.gain.value = 0.5;
+  const gateLfo = ctx.createOscillator();
+  gateLfo.type = 'square';
+  gateLfo.frequency.value = STARSHIP_RATE;
+  const gateDepth = ctx.createGain();
+  gateDepth.gain.value = 0.5;
+  const smooth = ctx.createBiquadFilter();
+  smooth.type = 'lowpass';
+  smooth.frequency.value = 40;
+  gateLfo.connect(gateDepth).connect(smooth).connect(gate.gain);
+  const trim = ctx.createGain();
+  trim.gain.value = 0.6; // two voices through a resonant filter: keep peaks below clipping
+  tone.connect(trim).connect(gate).connect(out);
+
+  // Start the two LFOs on the same tick so the gate stays in step with the sweep.
+  const t = ctx.currentTime + 0.02;
+  sweep.start(t);
+  gateLfo.start(t);
+  voices.forEach((v) => v.start(t));
+  return [sweep, gateLfo, ...voices];
+};
+
 const startSiren = () => {
   if (sirenNodes) return;
   try {
     const ctx = getAudio();
-    const osc = ctx.createOscillator();
-    osc.type = 'sawtooth';
-    osc.frequency.value = 950;
-    const lfo = ctx.createOscillator();
-    lfo.type = 'triangle';
-    lfo.frequency.value = 0.45;
-    const depth = ctx.createGain();
-    depth.gain.value = 450;
-    lfo.connect(depth).connect(osc.frequency);
-    const tone = ctx.createBiquadFilter();
-    tone.type = 'lowpass';
-    tone.frequency.value = 3200;
     const gain = ctx.createGain();
     gain.gain.setValueAtTime(0.0001, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(SIREN_VOLUME, ctx.currentTime + 0.3);
-    osc.connect(tone).connect(gain).connect(ctx.destination);
-    osc.start();
-    lfo.start();
-    sirenNodes = { osc, lfo, gain };
+    gain.gain.exponentialRampToValueAtTime(speaking ? 0.08 : SIREN_VOLUME, ctx.currentTime + 0.3);
+    gain.connect(ctx.destination);
+    const oscs = getSoundStyle() === 'starship' ? buildStarshipSiren(ctx, gain) : buildClassicSiren(ctx, gain);
+    sirenNodes = { oscs, gain };
   } catch (e) { sirenNodes = null; }
 };
 const stopSiren = () => {
   if (!sirenNodes) return;
-  const { osc, lfo, gain } = sirenNodes;
+  const { oscs, gain } = sirenNodes;
   sirenNodes = null;
   try {
     const t = alarmCtx.currentTime;
     gain.gain.cancelScheduledValues(t);
     gain.gain.setValueAtTime(Math.max(gain.gain.value, 0.0002), t);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
-    osc.stop(t + 0.2);
-    lfo.stop(t + 0.2);
+    oscs.forEach((o) => o.stop(t + 0.2));
   } catch (e) {}
+};
+
+// ---- Voice alerts ------------------------------------------------------------
+// After the alert sound, the browser's built-in text-to-speech reads the problem out
+// ("Red alert. Snapmaker U1: Print stopped. ..."). Works offline with the voices
+// Windows already has; prefers a British "Natural" voice when one is installed.
+const VOICE_KEY = 'silas_alarm_voice';
+const getVoiceOn = () => { try { return localStorage.getItem(VOICE_KEY) !== 'off'; } catch (e) { return true; } };
+let pickedVoice = null;
+let speaking = false;
+const pickVoice = () => {
+  const vs = (window.speechSynthesis && window.speechSynthesis.getVoices()) || [];
+  if (!vs.length) return null;
+  const score = (v) => (v.lang === 'en-GB' ? 4 : /^en/i.test(v.lang || '') ? 2 : 0)
+    + (/natural|online/i.test(v.name) ? 2 : 0)
+    + (/female|libby|sonia|maisie|hazel|susan|aria|jenny|zira/i.test(v.name) ? 1 : 0);
+  return [...vs].sort((a, b) => score(b) - score(a))[0];
+};
+if (typeof window !== 'undefined' && window.speechSynthesis) {
+  window.speechSynthesis.addEventListener?.('voiceschanged', () => { pickedVoice = pickVoice(); });
+}
+// Keep spoken text short: drop raw error codes, stop at a sentence end.
+const tidySpeech = (t, max = 160) => {
+  let s = String(t || '').replace(/\b\d{4}-\d{4}-\d{4}-\d{4}\b/g, '').replace(/\s+/g, ' ').trim();
+  if (s.length > max) {
+    const cut = s.slice(0, max);
+    const dot = cut.lastIndexOf('. ');
+    s = dot > 60 ? cut.slice(0, dot + 1) : cut.replace(/\s\S*$/, '') + '.';
+  }
+  return s;
+};
+// Turn the siren down while the computer is talking, then back up.
+const duckSiren = (on) => {
+  speaking = on;
+  if (!sirenNodes || !alarmCtx) return;
+  try {
+    const g = sirenNodes.gain.gain, t = alarmCtx.currentTime;
+    g.cancelScheduledValues(t);
+    g.setValueAtTime(Math.max(g.value, 0.0002), t);
+    g.exponentialRampToValueAtTime(on ? 0.08 : SIREN_VOLUME, t + 0.2);
+  } catch (e) {}
+};
+const speak = (text, delayMs = 0) => {
+  const synth = window.speechSynthesis;
+  if (!synth || !text) return;
+  const u = new SpeechSynthesisUtterance(text);
+  pickedVoice = pickedVoice || pickVoice();
+  if (pickedVoice) { u.voice = pickedVoice; u.lang = pickedVoice.lang; } else u.lang = 'en-GB';
+  u.rate = 0.95;
+  u.pitch = 1;
+  u.onstart = () => duckSiren(true);
+  u.onend = u.onerror = () => duckSiren(false);
+  setTimeout(() => { synth.cancel(); synth.speak(u); }, delayMs);
+};
+const describeAlerts = (alerts, worst) => {
+  const lead = worst === 'critical' ? 'Red alert.' : worst === 'info' ? 'Attention.' : 'Warning.';
+  const parts = alerts.slice(0, 3).map((a) => {
+    const title = tidySpeech(a.title, 80).replace(/[.!?]+$/, '');
+    const msg = tidySpeech(a.message);
+    return `${a.printer_name || 'SILAS'}: ${title}.${msg && msg !== title ? ' ' + msg : ''}`;
+  });
+  if (alerts.length > 3) parts.push(`Plus ${alerts.length - 3} more in the alert log.`);
+  return `${lead} ${parts.join(' ')}`;
 };
 
 const timeAgo = (epochSec) => {
@@ -116,6 +291,18 @@ const unmaskInput = (val) => (val && val.includes(KEY_MASK) ? val.split(KEY_MASK
 // SILAS CUSTOMIZATION MATRIX: THEMES & FONTS
 // ==========================================
 const THEMES = [
+  {
+    // Full LCARS-style console: switches on the html.theme-lcars frame in index.css
+    id: 'lcars',
+    name: 'Starship Ops (LCARS)',
+    glow: '#ff9900',
+    dim: '#cc6600',
+    rgb: '255, 153, 0',
+    borderBright: 'rgba(255, 153, 0, 0.6)',
+    borderDim: 'rgba(204, 153, 204, 0.3)',
+    desc: 'LCARS-style console: elbow frame, pill keys, pastel blocks',
+    lcars: true
+  },
   {
     id: 'cyan',
     name: 'Cyber Cyan',
@@ -235,9 +422,9 @@ export default function App() {
   const getInitialTab = () => {
     try {
       const hash = window.location.hash.replace('#', '');
-      if (['mission', 'todo', 'fleet', 'calendar', 'ai', 'mobile', 'drives', 'usage'].includes(hash)) return hash;
+      if (['mission', 'todo', 'fleet', 'learn', 'calendar', 'ai', 'mobile', 'drives', 'usage'].includes(hash)) return hash;
       const saved = localStorage.getItem('havoc_active_tab');
-      if (saved && ['mission', 'todo', 'fleet', 'calendar', 'ai', 'mobile', 'drives', 'usage'].includes(saved)) return saved;
+      if (saved && ['mission', 'todo', 'fleet', 'learn', 'calendar', 'ai', 'mobile', 'drives', 'usage'].includes(saved)) return saved;
     } catch (e) {}
     return 'mission';
   };
@@ -321,7 +508,10 @@ export default function App() {
   // Settings & Customization
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showMoreMenu, setShowMoreMenu] = useState(false);
-  const [settingsTab, setSettingsTab] = useState('colors'); // 'colors' | 'fonts' | 'layout'
+  const [settingsTab, setSettingsTab] = useState('colors'); // 'colors' | 'fonts' | 'layout' | 'api' | 'screen'
+  // Burn-in protection (hue drift, pixel shift, deep dim, screensaver) - saved per device
+  const [screenGuard, setScreenGuard] = useScreenGuardSettings();
+  const [saverPreview, setSaverPreview] = useState(0);
 
   const getInitialTheme = () => {
     try {
@@ -370,6 +560,7 @@ export default function App() {
     root.style.setProperty('--border-bright', theme.borderBright);
     root.style.setProperty('--border-dim', theme.borderDim);
     root.style.setProperty('--accent-rgb', theme.rgb);
+    root.classList.toggle('theme-lcars', !!theme.lcars);
 
     let styleEl = document.getElementById('havoc-dynamic-theme');
     if (!styleEl) {
@@ -654,7 +845,7 @@ export default function App() {
     const handleHashChange = () => {
       try {
         const hash = window.location.hash.replace('#', '');
-        if (['mission', 'todo', 'fleet', 'calendar', 'ai', 'mobile', 'drives', 'usage'].includes(hash)) {
+        if (['mission', 'todo', 'fleet', 'learn', 'calendar', 'ai', 'mobile', 'drives', 'usage'].includes(hash)) {
           setActiveTabState(hash);
           localStorage.setItem('havoc_active_tab', hash);
         }
@@ -735,6 +926,27 @@ export default function App() {
     });
   };
 
+  const [alarmStyle, setAlarmStyle] = useState(getSoundStyle);
+  const toggleAlarmStyle = () => {
+    const next = alarmStyle === 'starship' ? 'classic' : 'starship';
+    try { localStorage.setItem(SOUND_STYLE_KEY, next); } catch (e) {}
+    setAlarmStyle(next);
+    // Restart a running siren in the new style.
+    if (sirenOnRef.current) { stopSiren(); setTimeout(() => { if (sirenOnRef.current) startSiren(); }, 250); }
+    else playAlarm('warning');
+  };
+
+  const [voiceOn, setVoiceOn] = useState(getVoiceOn);
+  const voiceOnRef = useRef(voiceOn);
+  voiceOnRef.current = voiceOn;
+  const toggleVoice = () => {
+    const next = !voiceOn;
+    try { localStorage.setItem(VOICE_KEY, next ? 'on' : 'off'); } catch (e) {}
+    setVoiceOn(next);
+    if (next) speak('Voice alerts online. Warning. Snapmaker U1: Example alert. This is a test of the voice alert system.');
+    else { try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {} }
+  };
+
   const testSiren = () => {
     if (sirenOnRef.current) return;
     startSiren();
@@ -752,7 +964,10 @@ export default function App() {
     seenAlertsRef.current = next;
     if (!fresh.length || !fromPush) return;
     const worst = fresh.some((a) => a.severity === 'critical') ? 'critical' : fresh.every((a) => a.severity === 'info') ? 'info' : 'warning';
-    if (alertSoundRef.current) playAlarm(worst);
+    if (alertSoundRef.current) {
+      playAlarm(worst);
+      if (voiceOnRef.current) speak(describeAlerts(fresh, worst), worst === 'critical' ? 1400 : 700);
+    }
     try {
       if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
         fresh.slice(0, 3).forEach((a) => {
@@ -1968,7 +2183,7 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col p-4 md:p-6 max-w-7xl mx-auto">
       {/* TOP HUD HEADER */}
-      <header className="hud-panel relative z-30 p-4 mb-6 flex flex-wrap items-center justify-between gap-4">
+      <header className="silas-header hud-panel relative z-30 p-4 mb-6 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-4">
           <div className="w-10 h-10 rounded-lg bg-cyan-950 border border-cyan-500 flex items-center justify-center text-xl font-display font-black text-cyan-400 shadow-[0_0_15px_rgba(0,242,254,0.3)]">
             S
@@ -2041,11 +2256,12 @@ export default function App() {
 
         {/* NAVIGATION TABS */}
         <div className="w-full flex flex-col pt-3 border-t border-slate-800/80 gap-3">
-          <nav className="nav-deck" aria-label="Main sections" style={{ '--keys': 8 - ['ai', 'mobile'].filter(navHidden).length }}>
+          <nav className="nav-deck" aria-label="Main sections" style={{ '--keys': 9 - ['ai', 'mobile'].filter(navHidden).length }}>
             {[
               { id: 'mission', code: '01', label: 'MISSION', sub: 'CONTROL', icon: 'M12 2 3 7v6c0 5 4 8.5 9 9 5-.5 9-4 9-9V7l-9-5Zm0 5v10M7 12h10' },
               { id: 'todo', code: '02', label: 'TODAY', sub: 'ONE THING', icon: 'M4 12.5 9 17 20 6' },
               { id: 'fleet', code: '03', label: 'FLEET', sub: `${hideOfflinePrinters ? `${workingPrinters.length}/${fleet.length}` : fleet.length} RIGS`, icon: 'M6 9V3h12v6M6 17H4v-6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v6h-2M7 14h10v7H7z' },
+              { id: 'learn', code: '04', label: 'LEARN', sub: 'POMODORO', icon: 'M2 6.5 12 3l10 3.5L12 10 2 6.5ZM6 8.2v5.3c0 1.7 2.7 3.5 6 3.5s6-1.8 6-3.5V8.2M22 6.5v6' },
               { id: 'ai', code: '04', label: 'SILAS', sub: 'CO-PILOT', icon: 'M9 3h6M12 3v3M5 9a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H8a3 3 0 0 1-3-3V9Zm4 4h.01M15 13h.01M9.5 16.5h5' },
               { id: 'calendar', code: '05', label: 'SCHEDULE', sub: `${events.length} EVENTS`, icon: 'M4 6h16v14H4zM4 10h16M9 3v4M15 3v4' },
               { id: 'mobile', code: '06', label: 'MOBILE', sub: 'LAN LINK', icon: 'M8 2h8a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V3a1 1 0 0 1 1-1Zm3 17h2' },
@@ -2113,6 +2329,18 @@ export default function App() {
                       className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded font-mono text-[12px] text-slate-200 hover:bg-cyan-950/60 hover:text-white">
                       <span className="text-base">📱</span>
                       <span className="flex flex-col"><span className="tracking-wider font-bold">MOBILE VIEW</span><span className="text-[10px] text-slate-500">LAN link for your other devices</span></span>
+                    </button>
+                    <button role="menuitem"
+                      onClick={() => {
+                        setShowMoreMenu(false);
+                        try {
+                          if (document.fullscreenElement) document.exitFullscreen();
+                          else document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+                        } catch (e) {}
+                      }}
+                      className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded font-mono text-[12px] text-slate-200 hover:bg-cyan-950/60 hover:text-white">
+                      <span className="text-base">⛶</span>
+                      <span className="flex flex-col"><span className="tracking-wider font-bold">{typeof document !== 'undefined' && document.fullscreenElement ? 'EXIT FULL SCREEN' : 'FULL SCREEN'}</span><span className="text-[10px] text-slate-500">Hide the taskbar · F11 or Esc to toggle</span></span>
                     </button>
                     <button role="menuitem"
                       onClick={() => { setShowMoreMenu(false); setShowSettingsModal(true); }}
@@ -2193,6 +2421,10 @@ export default function App() {
                 <button onClick={toggleAlertSound} className="underline text-slate-300">Sound: {alertSoundOn ? 'ON' : 'OFF'}</button>
                 <button onClick={toggleSiren} className="underline text-slate-300" title="Loud siren if a print stops on its own">Siren: {sirenArmed ? 'ON' : 'OFF'}</button>
                 <button onClick={testSiren} className="underline text-slate-300">Test siren (3s)</button>
+                <button onClick={toggleAlarmStyle} className="underline text-slate-300" title="Starship: red-alert whoop and console chirps. Classic: the original siren and beeps.">Style: {alarmStyle === 'starship' ? 'STARSHIP' : 'CLASSIC'}</button>
+                {typeof window !== 'undefined' && window.speechSynthesis && (
+                  <button onClick={toggleVoice} className="underline text-slate-300" title="Read each new alert out loud after the alert sound">Voice: {voiceOn ? 'ON' : 'OFF'}</button>
+                )}
                 {notifyPerm === 'default' && (
                   <button onClick={enableDesktopAlerts} className="underline text-cyan-300">Enable desktop pop-ups</button>
                 )}
@@ -2895,6 +3127,8 @@ export default function App() {
         {activeTab === 'drives' && <DrivesManager />}
         {activeTab === 'usage' && <AIUsage />}
         {activeTab === 'todo' && <TodoBoard />}
+        {activeTab === 'learn' && <LearnBoard />}
+        <PomodoroPill onLearnTab={activeTab === 'learn'} onOpen={() => setActiveTab('learn')} />
       </main>
 
       {/* MODAL: ADD MACHINE */}
@@ -3231,6 +3465,17 @@ export default function App() {
                 <span>🔑</span>
                 <span>API KEYS & LLM</span>
               </button>
+              <button
+                onClick={() => setSettingsTab('screen')}
+                className={`px-3 py-2 text-xs font-mono font-bold rounded-t-lg border-t border-x transition-all flex items-center gap-2 ${
+                  settingsTab === 'screen'
+                    ? 'bg-slate-950 text-cyan-400 border-slate-700 border-b-2 border-b-transparent'
+                    : 'text-slate-400 border-transparent hover:text-white'
+                }`}
+              >
+                <span>🖥️</span>
+                <span>SCREEN</span>
+              </button>
             </div>
 
             {/* Tab Body */}
@@ -3562,6 +3807,14 @@ export default function App() {
               )}
 
               {/* TAB 4: API KEYS & LLM CONFIG */}
+              {settingsTab === 'screen' && (
+                <ScreenGuardSettings
+                  settings={screenGuard}
+                  onChange={setScreenGuard}
+                  onPreview={() => { setShowSettingsModal(false); setTimeout(() => setSaverPreview(Date.now()), 300); }}
+                />
+              )}
+
               {settingsTab === 'api' && (
                 <div className="space-y-4">
                   <div className="flex items-center justify-between flex-wrap gap-2">
@@ -4137,6 +4390,15 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* Burn-in protection: hue drift, pixel shift, deep dim, screensaver */}
+      <ScreenGuard
+        settings={screenGuard}
+        fleet={fleet}
+        alerts={alerts}
+        briefing={briefing}
+        paused={!!webcamModal}
+        previewToken={saverPreview}
+      />
     </div>
   );
 }

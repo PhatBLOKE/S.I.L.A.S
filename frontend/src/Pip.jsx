@@ -190,7 +190,7 @@ export function PipTile({ onToast }) {
   }
 
   return (
-    <div className={`rounded-lg border-2 ${nudge ? 'border-violet-400 shadow-[0_0_24px_rgba(167,139,250,0.25)]' : 'border-violet-600/60'} bg-violet-950/20 p-4 space-y-3`}>
+    <div data-tone="violet" className={`silas-tile silas-pip rounded-lg border-2 ${nudge ? 'border-violet-400 shadow-[0_0_24px_rgba(167,139,250,0.25)]' : 'border-violet-600/60'} bg-violet-950/20 p-4 space-y-3`}>
       <div className="flex flex-wrap items-center justify-between gap-2 font-mono">
         <span className="text-[11px] tracking-[0.2em] font-bold text-violet-300">♥ PIP DIARY</span>
         <span className="text-[11px] text-slate-400">
