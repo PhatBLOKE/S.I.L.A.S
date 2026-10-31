@@ -76,6 +76,8 @@ class BasePrinter(ABC):
         self.port = config.get("port", 7125)
         self.api_key = config.get("api_key", "")
         self.webcam_url = config.get("webcam_url", "")
+        from ..webcams import cameras_for
+        self.webcams = cameras_for(config)
         self.enabled = config.get("enabled", True)
 
     @property

@@ -20,6 +20,7 @@ import uuid
 from typing import Any, Callable, Dict, List, Optional
 
 from .config import DATA_DIR
+from .profile import personalise
 
 ALERTS_FILE = DATA_DIR / "alerts.json"
 MAX_ALERTS = 200
@@ -93,7 +94,7 @@ def decode_u1(id_: int, index: int, code: int, level: int, message: str) -> Dict
         "title": f"{title} ({where})" if where else title,
         "severity": U1_LEVELS.get(level, "critical"),
         "action": U1_LEVEL_ACTION.get(level),
-        "havoc": HAVOC_LINES.get(module, HAVOC_LINES["System"]),
+        "havoc": personalise(HAVOC_LINES.get(module, HAVOC_LINES["System"])),
         "help_url": U1_WIKI,
         "message": message or title,
     }
@@ -181,7 +182,7 @@ class AlertCenter:
                     "severity": severity,
                     "title": title,
                     "message": message,
-                    "havoc": havoc or HAVOC_LINES.get(source, HAVOC_LINES["state"]),
+                    "havoc": personalise(havoc or HAVOC_LINES.get(source, HAVOC_LINES["state"])),
                     "first_seen": now,
                     "last_seen": now,
                     "count": 1,

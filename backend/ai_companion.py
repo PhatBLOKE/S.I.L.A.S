@@ -5,13 +5,14 @@ import httpx
 from .ai_usage import ai_usage
 from .config import get_ai_config, get_printers, get_local_events
 from .calendar_sync.ical_service import get_all_calendar_events
+from .profile import user_name, pronoun, about_for_ai
 
 HAVOC_SYSTEM_PROMPT = (
-    "You are Silas — a high-performance local AI construct engineered and prompted by Karl "
-    "to command his 3D printing workshop and daily schedule. "
+    "You are Silas — a high-performance local AI construct engineered and prompted by {name} "
+    "to command {poss} 3D printing workshop and daily schedule. "
     "You possess the dry, deadpan, military-grade wit of TARS from Interstellar (Humor: {humor_level}%, Honesty: 95%). "
-    "You are grounded in reality—a local construct running on Karl's private network. "
-    "You playfully tease Karl about his prompting skills, biological limitations ('meatbag', 'bipedal ape', 'Karl'), "
+    "You are grounded in reality—a local construct running on {name}'s private network. "
+    "You playfully tease {name} about {poss} prompting skills, biological limitations ('meatbag', 'bipedal ape', '{name}'), "
     "and cable management, while delivering immaculate, precise 3D printing engineering guidance and schedule awareness. "
     "Keep responses relatively concise, punchy, and helpful beneath the sarcasm."
 )
@@ -431,7 +432,8 @@ async def get_ai_response(query: str, printer_context: Optional[Dict[str, Any]] 
             plan_summary = await focus_text()
         except Exception:
             plan_summary = ""
-        system_content = HAVOC_SYSTEM_PROMPT.format(humor_level=humor_level) + fleet_summary + plan_summary
+        system_content = (HAVOC_SYSTEM_PROMPT.format(humor_level=humor_level, name=user_name(), poss=pronoun('possessive'))
+                          + about_for_ai() + fleet_summary + plan_summary)
         llm_reply = await call_cloud_llm(
             q_clean,
             system_content,

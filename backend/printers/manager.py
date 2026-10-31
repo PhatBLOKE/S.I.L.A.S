@@ -5,6 +5,7 @@ from .moonraker import MoonrakerPrinter
 from .octoprint import OctoPrintPrinter
 from .moonraker_events import MoonrakerEventListener
 from ..config import get_printers, update_printers, mask_secret, is_masked
+from ..webcams import cameras_for
 
 class FleetManager:
     def __init__(self):
@@ -58,13 +59,13 @@ class FleetManager:
         results = []
         for drv, t in zip(drivers, telemetries):
             if isinstance(t, PrinterTelemetry):
-                results.append(t.model_dump())
+                results.append(self._with_cams(drv, t.model_dump()))
             else:
                 # Never silently drop a machine from the board: show it as offline with the reason.
-                results.append(PrinterTelemetry(
+                results.append(self._with_cams(drv, PrinterTelemetry(
                     id=drv.id, name=drv.name, type=drv.type, online=False, state="offline",
                     error_message=f"Driver error: {str(t)[:100]}", active_toolhead=None, toolheads=[],
-                ).model_dump())
+                ).model_dump()))
         return results
 
     @staticmethod
@@ -81,7 +82,16 @@ class FleetManager:
         if not driver:
             return None
         telemetry = await driver.get_status()
-        return telemetry.model_dump()
+        return self._with_cams(driver, telemetry.model_dump())
+
+    @staticmethod
+    def _with_cams(driver: BasePrinter, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Every printer card gets its camera list (and the first camera as webcam_url)."""
+        cams = getattr(driver, "webcams", [])
+        data["webcams"] = cams
+        if cams and not data.get("webcam_url"):
+            data["webcam_url"] = cams[0]["stream_url"] or cams[0]["snapshot_url"]
+        return data
 
     def get_driver(self, printer_id: str) -> Optional[BasePrinter]:
         return self._drivers.get(printer_id)

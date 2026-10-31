@@ -363,7 +363,7 @@ async def focus_text() -> str:
         t = (_due_dt(nb) or dt.datetime.now()).strftime("%H:%M")
         parts.append(f"next block at {t}: {nb['content']}")
     if f.get("now"):
-        parts.append("NOW project (the only thing he should be building): " + "; ".join(t["content"] for t in f["now"]))
+        parts.append("NOW project (the only thing to be building): " + "; ".join(t["content"] for t in f["now"]))
         if len(f["now"]) > 1:
             parts.append("WARNING: more than one task in Now")
     if f.get("next"):
@@ -372,8 +372,12 @@ async def focus_text() -> str:
         parts.append(f"{f['overdue_count']} overdue Todoist tasks")
     if not parts:
         return ""
-    return ("\nKarl's plan from Todoist (he has ADHD; help him start and finish ONE thing, nudge him back to "
-            "the Now project if he drifts, remind him to eat around midday): " + " | ".join(parts))
+    from .profile import get_profile, user_name, pronoun
+    prof = get_profile()
+    them = pronoun("object", prof)
+    eat = f", remind {them} to eat around midday" if prof.get("lunch_reminder") else ""
+    return (f"\n{user_name(prof)}'s plan from Todoist (help {them} start and finish ONE thing, nudge {them} back to "
+            f"the Now project if {pronoun('subject', prof)} drifts{eat}): " + " | ".join(parts))
 
 
 # --------------------------------------------------------------------------- routes

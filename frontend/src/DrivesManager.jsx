@@ -2,23 +2,23 @@ import React, { useState, useEffect } from 'react';
 
 const API_BASE = '/api';
 
-export default function DrivesManager() {
+export default function DrivesManager({ userName = 'Operator', workFolder = '' }) {
   const [fleetDrives, setFleetDrives] = useState([]);
-  const [activeDrive, setActiveDrive] = useState('E:');
+  const [activeDrive, setActiveDrive] = useState(() => (/^[A-Za-z]:/.test(workFolder) ? workFolder.slice(0, 2).toUpperCase() : 'C:'));
   const [driveData, setDriveData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [subTab, setSubTab] = useState('overview'); // 'overview' | 'root-triage' | 'folder-organizer' | 'duplicates' | 'undo'
   const [statusMsg, setStatusMsg] = useState('');
 
   // Folder Organizer state
-  const [targetPath, setTargetPath] = useState('E:\\PhatBLOKE 3d\\To sort through');
+  const [targetPath, setTargetPath] = useState(workFolder);
   const [recursive, setRecursive] = useState(true);
   const [folderScanData, setFolderScanData] = useState(null);
   const [selectedCats, setSelectedCats] = useState([]);
   const [folderScanning, setFolderScanning] = useState(false);
 
   // Duplicates state
-  const [dupPath, setDupPath] = useState('E:\\PhatBLOKE 3d\\To sort through');
+  const [dupPath, setDupPath] = useState(workFolder);
   const [dupMinSize, setDupMinSize] = useState(1);
   const [dupScanData, setDupScanData] = useState(null);
   const [dupScanning, setDupScanning] = useState(false);
@@ -295,7 +295,7 @@ export default function DrivesManager() {
             </h2>
           </div>
           <p className="font-mono text-xs text-slate-400 mt-1">
-            Zero-Fatality storage manager for Karl. Game installations and system kernel structures are locked in stasis.
+            Zero-Fatality storage manager for {userName}. Game installations and system kernel structures are locked in stasis.
           </p>
         </div>
 
@@ -651,7 +651,7 @@ export default function DrivesManager() {
               type="text"
               value={targetPath}
               onChange={(e) => setTargetPath(e.target.value)}
-              placeholder="Absolute folder path (e.g. E:\PhatBLOKE 3d\To sort through)"
+              placeholder="Absolute folder path (e.g. D:\3D Prints\To sort through)"
               className="flex-1 bg-slate-900 border border-slate-700 rounded p-2 text-white font-mono text-xs"
             />
             <button

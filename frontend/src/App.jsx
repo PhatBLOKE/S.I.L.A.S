@@ -3,7 +3,10 @@ import DrivesManager from './DrivesManager';
 import AIUsage from './AIUsage';
 import TodoBoard, { FocusStrip } from './Todo';
 import LearnBoard, { PomodoroPill } from './Learn';
-import ScreenGuard, { useScreenGuardSettings, ScreenGuardSettings } from './ScreenGuard';
+import ScreenGuard, { useScreenGuardSettings, ScreenGuardSettings, IS_WALLPAPER } from './ScreenGuard';
+import Setup from './Setup';
+import { CameraModal, CameraManager, CameraPicker, CameraWall, camerasOf } from './Cameras';
+import { testChamberFx } from './voiceFx';
 
 const API_BASE = '/api';
 const KEY_MASK = '\u2022';
@@ -210,20 +213,36 @@ const stopSiren = () => {
 // After the alert sound, the browser's built-in text-to-speech reads the problem out
 // ("Red alert. Snapmaker U1: Print stopped. ..."). Works offline with the voices
 // Windows already has; prefers a British "Natural" voice when one is installed.
+// Voice personas: 'starship' (calm ship's computer), 'testchamber' (passive-aggressive
+// lab AI, GLaDOS-style), or 'off'. Older installs stored 'on', which means starship.
 const VOICE_KEY = 'silas_alarm_voice';
-const getVoiceOn = () => { try { return localStorage.getItem(VOICE_KEY) !== 'off'; } catch (e) { return true; } };
-let pickedVoice = null;
+const VOICE_MODES = ['starship', 'testchamber', 'off'];
+const VOICE_LABEL = { starship: 'STARSHIP', testchamber: 'TEST CHAMBER', off: 'OFF' };
+const getVoiceMode = () => {
+  try {
+    const v = localStorage.getItem(VOICE_KEY);
+    return v === 'off' ? 'off' : v === 'testchamber' ? 'testchamber' : 'starship';
+  } catch (e) { return 'starship'; }
+};
+let pickedVoices = {};
 let speaking = false;
-const pickVoice = () => {
+const FEMALE_VOICE = /female|libby|sonia|maisie|hazel|susan|aria|jenny|zira|emma|ava|michelle/i;
+const pickVoice = (persona = 'starship') => {
   const vs = (window.speechSynthesis && window.speechSynthesis.getVoices()) || [];
   if (!vs.length) return null;
-  const score = (v) => (v.lang === 'en-GB' ? 4 : /^en/i.test(v.lang || '') ? 2 : 0)
-    + (/natural|online/i.test(v.name) ? 2 : 0)
-    + (/female|libby|sonia|maisie|hazel|susan|aria|jenny|zira/i.test(v.name) ? 1 : 0);
+  const score = (v) => {
+    const en = /^en/i.test(v.lang || '');
+    if (persona === 'testchamber') {
+      // A clear female voice; the older non-"Natural" voices take the pitch steps better.
+      return (en ? 4 : 0) + (FEMALE_VOICE.test(v.name) ? 3 : 0) + (/natural|online/i.test(v.name) ? 0 : 1)
+        + (/en-US/i.test(v.lang || '') ? 1 : 0);
+    }
+    return (v.lang === 'en-GB' ? 4 : en ? 2 : 0) + (/natural|online/i.test(v.name) ? 2 : 0) + (FEMALE_VOICE.test(v.name) ? 1 : 0);
+  };
   return [...vs].sort((a, b) => score(b) - score(a))[0];
 };
 if (typeof window !== 'undefined' && window.speechSynthesis) {
-  window.speechSynthesis.addEventListener?.('voiceschanged', () => { pickedVoice = pickVoice(); });
+  window.speechSynthesis.addEventListener?.('voiceschanged', () => { pickedVoices = {}; });
 }
 // Keep spoken text short: drop raw error codes, stop at a sentence end.
 const tidySpeech = (t, max = 160) => {
@@ -246,26 +265,119 @@ const duckSiren = (on) => {
     g.exponentialRampToValueAtTime(on ? 0.08 : SIREN_VOLUME, t + 0.2);
   } catch (e) {}
 };
-const speak = (text, delayMs = 0) => {
-  const synth = window.speechSynthesis;
-  if (!synth || !text) return;
-  const u = new SpeechSynthesisUtterance(text);
-  pickedVoice = pickedVoice || pickVoice();
-  if (pickedVoice) { u.voice = pickedVoice; u.lang = pickedVoice.lang; } else u.lang = 'en-GB';
-  u.rate = 0.95;
-  u.pitch = 1;
-  u.onstart = () => duckSiren(true);
-  u.onend = u.onerror = () => duckSiren(false);
-  setTimeout(() => { synth.cancel(); synth.speak(u); }, delayMs);
+// Test-chamber delivery: one utterance per short phrase, each on a slightly different
+// pitch, so it comes out in that stepped, not-quite-human cadence.
+const TESTCHAMBER_PITCH = [1.35, 1.5, 1.25, 1.6, 1.4, 1.2];
+const splitPhrases = (text) => String(text).split(/(?<=[.,;:!?)])\s+/).map((x) => x.trim()).filter(Boolean);
+
+// Test-chamber voice, full version: Windows records the line (backend/voice.py), then
+// voiceFx.js re-synthesises it with snapped, stepped pitch and a metallic edge.
+let voiceSource = null;
+let voiceRun = 0;
+const stopRecordedVoice = () => {
+  voiceRun++;
+  if (voiceSource) { try { voiceSource.stop(); } catch (e) {} voiceSource = null; duckSiren(false); }
 };
-const describeAlerts = (alerts, worst) => {
-  const lead = worst === 'critical' ? 'Red alert.' : worst === 'info' ? 'Attention.' : 'Warning.';
+const playTestChamber = async (text, delayMs) => {
+  const run = ++voiceRun;
+  const startAt = Date.now() + delayMs;
+  const res = await fetch(`${API_BASE}/voice/render`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }),
+  });
+  if (!res.ok) throw new Error(`voice render ${res.status}`);
+  const ctx = getAudio();
+  const decoded = await ctx.decodeAudioData(await res.arrayBuffer());
+  const wet = testChamberFx(decoded.getChannelData(0), decoded.sampleRate);
+  const buffer = ctx.createBuffer(1, wet.length, decoded.sampleRate);
+  buffer.copyToChannel(wet, 0);
+  const wait = startAt - Date.now();
+  if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+  if (run !== voiceRun) return; // something newer started
+  const src = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  gain.gain.value = 0.9;
+  src.buffer = buffer;
+  src.connect(gain).connect(ctx.destination);
+  src.onended = () => { if (voiceSource === src) { voiceSource = null; duckSiren(false); } };
+  if (voiceSource) { try { voiceSource.stop(); } catch (e) {} }
+  voiceSource = src;
+  duckSiren(true);
+  src.start();
+};
+
+const speak = (text, delayMs = 0, persona = 'starship') => {
+  if (!text || persona === 'off') return;
+  stopRecordedVoice();
+  if (persona === 'testchamber') {
+    // Fall back to the browser's own stepped voice if Windows can't record (e.g. not on the SILAS PC's OS).
+    playTestChamber(text, delayMs).catch((e) => { console.warn('[SILAS voice] recorded voice unavailable, using browser voice:', e && e.message); speakBrowser(text, 0, persona); });
+    return;
+  }
+  speakBrowser(text, delayMs, persona);
+};
+
+const speakBrowser = (text, delayMs = 0, persona = 'starship') => {
+  const synth = window.speechSynthesis;
+  if (!synth || !text || persona === 'off') return;
+  const voice = pickedVoices[persona] || (pickedVoices[persona] = pickVoice(persona));
+  const chunks = persona === 'testchamber' ? splitPhrases(text) : [text];
+  const utterances = chunks.map((chunk, i) => {
+    const u = new SpeechSynthesisUtterance(chunk);
+    if (voice) { u.voice = voice; u.lang = voice.lang; } else u.lang = 'en-GB';
+    if (persona === 'testchamber') {
+      u.rate = 0.9;
+      u.pitch = TESTCHAMBER_PITCH[i % TESTCHAMBER_PITCH.length];
+    } else {
+      u.rate = 0.95;
+      u.pitch = 1;
+    }
+    return u;
+  });
+  utterances[0].onstart = () => duckSiren(true);
+  const last = utterances[utterances.length - 1];
+  last.onend = last.onerror = () => duckSiren(false);
+  setTimeout(() => { synth.cancel(); utterances.forEach((u) => synth.speak(u)); }, delayMs);
+};
+
+// Original lines for the test-chamber persona (picked at random).
+const TESTCHAMBER_LINES = {
+  critical: [
+    "Oh. It's you. Something has gone wrong, and I suspect you were involved.",
+    "I'm not saying this is your fault. I'm just saying it happened while you were in charge.",
+    'Good news. The printer is still here. The bad news is everything else.',
+    'This is an emergency. I would panic, but one of us has to stay competent.',
+  ],
+  warning: [
+    'Attention, test subject.',
+    'This is a courtesy notification. I am being courteous. Notice that.',
+    'A small problem. Small for me, anyway.',
+    'I have detected an issue. Unlike you, I detect things.',
+  ],
+  info: [
+    'Just so you know.',
+    "For your records. Which I assume you don't keep.",
+    'An update. Try to look interested.',
+  ],
+  close: [
+    "Take your time. I'll wait. I always wait.",
+    "Please go and fix it. I'll be timing you.",
+    "Do let me know if you need help. I won't help, but do let me know.",
+    "I've made a note of this. It's a long note.",
+    'Off you go, then.',
+  ],
+};
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+const describeAlerts = (alerts, worst, persona = 'starship') => {
+  const lead = persona === 'testchamber'
+    ? pick(TESTCHAMBER_LINES[worst] || TESTCHAMBER_LINES.warning)
+    : worst === 'critical' ? 'Red alert.' : worst === 'info' ? 'Attention.' : 'Warning.';
   const parts = alerts.slice(0, 3).map((a) => {
     const title = tidySpeech(a.title, 80).replace(/[.!?]+$/, '');
     const msg = tidySpeech(a.message);
     return `${a.printer_name || 'SILAS'}: ${title}.${msg && msg !== title ? ' ' + msg : ''}`;
   });
   if (alerts.length > 3) parts.push(`Plus ${alerts.length - 3} more in the alert log.`);
+  if (persona === 'testchamber') parts.push(pick(TESTCHAMBER_LINES.close));
   return `${lead} ${parts.join(' ')}`;
 };
 
@@ -552,6 +664,23 @@ export default function App() {
   const [displayFont, setDisplayFont] = useState(getInitialFont);
   const [missionPanels, setMissionPanels] = useState(getInitialPanels);
 
+  // Who is using this SILAS (first-run setup). null = still loading.
+  const [profile, setProfile] = useState(null);
+  const [showProfile, setShowProfile] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const load = (tries) => fetch(`${API_BASE}/profile`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(r.status)))
+      .then((p) => { if (alive) setProfile(p); })
+      .catch(() => { if (alive && tries > 0) setTimeout(() => load(tries - 1), 2000); });
+    load(5);
+    return () => { alive = false; };
+  }, []);
+  // Wallpaper mode can't take typing, so it never shows setup.
+  const needsSetup = !!profile && !profile.setup_complete && !IS_WALLPAPER;
+  const userName = ((profile && (profile.call_me || profile.name)) || 'Karl').trim() || 'Operator';
+  const personalise = (t) => (typeof t === 'string' && userName !== 'Karl' ? t.replace(/\bKarl\b/g, userName) : t);
+
   const applyTheme = (themeId) => {
     const theme = THEMES.find(t => t.id === themeId) || THEMES[0];
     const root = document.documentElement;
@@ -653,6 +782,8 @@ export default function App() {
   const [showWarningModal, setShowWarningModal] = useState(false);
   const [dismissedConflictKeys, setDismissedConflictKeys] = useState(new Set());
   const [webcamModal, setWebcamModal] = useState(null);
+  const [cameraManager, setCameraManager] = useState(null); // printer whose cameras are being edited
+  const [showCameraWall, setShowCameraWall] = useState(false);
   const getInitialAiConfig = () => {
     try {
       const saved = localStorage.getItem('havoc_ai_config');
@@ -719,6 +850,7 @@ export default function App() {
     port: 7125,
     api_key: '',
     webcam_url: '',
+    webcams: [],
     enabled: true,
     notes: ''
   });
@@ -936,15 +1068,17 @@ export default function App() {
     else playAlarm('warning');
   };
 
-  const [voiceOn, setVoiceOn] = useState(getVoiceOn);
-  const voiceOnRef = useRef(voiceOn);
-  voiceOnRef.current = voiceOn;
-  const toggleVoice = () => {
-    const next = !voiceOn;
-    try { localStorage.setItem(VOICE_KEY, next ? 'on' : 'off'); } catch (e) {}
-    setVoiceOn(next);
-    if (next) speak('Voice alerts online. Warning. Snapmaker U1: Example alert. This is a test of the voice alert system.');
-    else { try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {} }
+  const [voiceMode, setVoiceMode] = useState(getVoiceMode);
+  const voiceModeRef = useRef(voiceMode);
+  voiceModeRef.current = voiceMode;
+  const cycleVoice = () => {
+    const next = VOICE_MODES[(VOICE_MODES.indexOf(voiceMode) + 1) % VOICE_MODES.length];
+    try { localStorage.setItem(VOICE_KEY, next); } catch (e) {}
+    setVoiceMode(next);
+    try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) {}
+    stopRecordedVoice();
+    if (next === 'starship') speak('Voice alerts online. Warning. Snapmaker U1: Example alert. This is a test of the voice alert system.', 0, next);
+    if (next === 'testchamber') speak(describeAlerts([{ printer_name: 'Snapmaker U1', title: 'Example alert', message: 'This is only a test.' }], 'warning', next), 0, next);
   };
 
   const testSiren = () => {
@@ -966,7 +1100,8 @@ export default function App() {
     const worst = fresh.some((a) => a.severity === 'critical') ? 'critical' : fresh.every((a) => a.severity === 'info') ? 'info' : 'warning';
     if (alertSoundRef.current) {
       playAlarm(worst);
-      if (voiceOnRef.current) speak(describeAlerts(fresh, worst), worst === 'critical' ? 1400 : 700);
+      const persona = voiceModeRef.current;
+      if (persona !== 'off') speak(describeAlerts(fresh, worst, persona), worst === 'critical' ? 1400 : 700, persona);
     }
     try {
       if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
@@ -1238,6 +1373,7 @@ export default function App() {
           port: 7125,
           api_key: '',
           webcam_url: '',
+          webcams: [],
           enabled: true,
           notes: ''
         });
@@ -1661,11 +1797,11 @@ export default function App() {
                   >
                     <div className="flex items-center gap-2 mb-1 pb-1 border-b border-slate-800/80">
                       <span className="font-mono font-bold text-[10px] text-cyan-400 uppercase">
-                        {msg.sender === 'user' ? 'Karl (Operator)' : 'Silas AI Construct'}
+                        {msg.sender === 'user' ? `${userName} (Operator)` : 'Silas AI Construct'}
                       </span>
                     </div>
                     <div className="whitespace-pre-wrap">
-                      {msg.text}
+                      {personalise(msg.text)}
                     </div>
                   </div>
                 </div>
@@ -2019,7 +2155,7 @@ export default function App() {
                           )}
                         </>
                       )}
-                      {p.webcam_url && (
+                      {camerasOf(p).length > 0 && (
                         <button
                           onClick={() => setWebcamModal(p)}
                           className="hud-btn text-[11px] py-1 px-2 ml-auto text-cyan-400"
@@ -2343,6 +2479,12 @@ export default function App() {
                       <span className="flex flex-col"><span className="tracking-wider font-bold">{typeof document !== 'undefined' && document.fullscreenElement ? 'EXIT FULL SCREEN' : 'FULL SCREEN'}</span><span className="text-[10px] text-slate-500">Hide the taskbar · F11 or Esc to toggle</span></span>
                     </button>
                     <button role="menuitem"
+                      onClick={() => { setShowMoreMenu(false); setShowProfile(true); }}
+                      className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded font-mono text-[12px] text-slate-200 hover:bg-cyan-950/60 hover:text-white">
+                      <span className="text-base">👤</span>
+                      <span className="flex flex-col"><span className="tracking-wider font-bold">YOUR PROFILE</span><span className="text-[10px] text-slate-500">Name, pronouns, how Silas helps</span></span>
+                    </button>
+                    <button role="menuitem"
                       onClick={() => { setShowMoreMenu(false); setShowSettingsModal(true); }}
                       className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded font-mono text-[12px] text-slate-200 hover:bg-cyan-950/60 hover:text-white">
                       <span className="text-base">⚙️</span>
@@ -2423,7 +2565,7 @@ export default function App() {
                 <button onClick={testSiren} className="underline text-slate-300">Test siren (3s)</button>
                 <button onClick={toggleAlarmStyle} className="underline text-slate-300" title="Starship: red-alert whoop and console chirps. Classic: the original siren and beeps.">Style: {alarmStyle === 'starship' ? 'STARSHIP' : 'CLASSIC'}</button>
                 {typeof window !== 'undefined' && window.speechSynthesis && (
-                  <button onClick={toggleVoice} className="underline text-slate-300" title="Read each new alert out loud after the alert sound">Voice: {voiceOn ? 'ON' : 'OFF'}</button>
+                  <button onClick={cycleVoice} className="underline text-slate-300" title="Who reads new alerts out loud: the starship computer, the test-chamber AI, or nobody. Click to switch; each one says a test line.">Voice: {VOICE_LABEL[voiceMode]}</button>
                 )}
                 {notifyPerm === 'default' && (
                   <button onClick={enableDesktopAlerts} className="underline text-cyan-300">Enable desktop pop-ups</button>
@@ -2502,6 +2644,15 @@ export default function App() {
                     title="Unhide all manually hidden machines"
                   >
                     Unhide All ({hiddenPrinterIds.length})
+                  </button>
+                )}
+                {fleet.some((p) => camerasOf(p).length > 0) && (
+                  <button
+                    onClick={() => setShowCameraWall(true)}
+                    className="hud-btn text-xs py-2 px-3 font-mono"
+                    title="Every printer camera at once"
+                  >
+                    📹 Camera Wall
                   </button>
                 )}
                 <button
@@ -2702,14 +2853,14 @@ export default function App() {
                       </button>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <button
                         onClick={() => handleTriggerMachineDiagnosis(p)}
                         className="hud-btn text-xs py-1.5 text-cyan-300 flex-1 justify-center"
                       >
                         🤖 Diagnose
                       </button>
-                      {p.webcam_url && (
+                      {camerasOf(p).length > 0 && (
                         <button
                           onClick={() => setWebcamModal(p)}
                           className="hud-btn text-xs py-1.5 text-cyan-400 px-3"
@@ -2718,6 +2869,14 @@ export default function App() {
                           👁️
                         </button>
                       )}
+                      <button
+                        onClick={() => setCameraManager(p)}
+                        className="hud-btn text-xs py-1.5 text-cyan-400 px-3"
+                        title={camerasOf(p).length ? 'Manage cameras' : 'Add cameras from this printer'}
+                        aria-label={`Cameras for ${p.name}`}
+                      >
+                        📷
+                      </button>
                       <button
                         onClick={() => handlePrinterCommand(p.id, 'emergency_stop')}
                         className="hud-btn hud-btn-danger text-xs py-1.5 px-3"
@@ -2880,11 +3039,11 @@ export default function App() {
                   >
                     <div className="flex items-center gap-2 mb-1.5 pb-1 border-b border-slate-800/80">
                       <span className="font-mono font-bold text-[10px] text-cyan-400 uppercase">
-                        {msg.sender === 'user' ? 'Karl (Operator)' : 'Silas AI Construct'}
+                        {msg.sender === 'user' ? `${userName} (Operator)` : 'Silas AI Construct'}
                       </span>
                     </div>
                     <div className="whitespace-pre-wrap font-sans">
-                      {msg.text}
+                      {personalise(msg.text)}
                     </div>
                   </div>
                 </div>
@@ -3124,7 +3283,7 @@ export default function App() {
         )}
 
         {/* TAB 6: DRIVES & STORAGE SENTINEL */}
-        {activeTab === 'drives' && <DrivesManager />}
+        {activeTab === 'drives' && <DrivesManager userName={userName} workFolder={profile?.work_folder || ''} />}
         {activeTab === 'usage' && <AIUsage />}
         {activeTab === 'todo' && <TodoBoard />}
         {activeTab === 'learn' && <LearnBoard />}
@@ -3207,13 +3366,12 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-slate-400 mb-1">WEBCAM STREAM URL (OPTIONAL)</label>
-                <input
-                  type="text"
-                  placeholder="http://192.168.1.103/webcam/?action=stream"
-                  value={newPrinter.webcam_url}
-                  onChange={(e) => setNewPrinter({ ...newPrinter, webcam_url: e.target.value })}
-                  className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-white"
+                <label className="block text-slate-400 mb-1">CAMERAS (OPTIONAL)</label>
+                <CameraPicker
+                  cameras={newPrinter.webcams || []}
+                  onChange={(cams) => setNewPrinter((np) => ({ ...np, webcams: cams, webcam_url: cams[0] ? (cams[0].stream_url || cams[0].snapshot_url) : '' }))}
+                  discoverBody={{ host: newPrinter.host, port: newPrinter.port, type: newPrinter.type, api_key: newPrinter.api_key }}
+                  canDiscover={/\d+\.\d+\.\d+\.\d+|[a-z]/i.test((newPrinter.host || '').replace(/^192\.168\.1\.$/, ''))}
                 />
               </div>
 
@@ -4197,35 +4355,19 @@ export default function App() {
       )}
 
 
-      {/* MODAL: WEBCAM FEED */}
+      {/* MODAL: PRINTER CAMERAS (viewer, manager, wall) */}
       {webcamModal && (
-        <div className="modal-overlay" onClick={() => setWebcamModal(null)}>
-          <div className="modal-content p-4 max-w-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-display font-bold text-sm text-white">
-                LIVE WEBCAM // {webcamModal.name}
-              </h3>
-              <button
-                onClick={() => setWebcamModal(null)}
-                className="text-slate-400 hover:text-white font-mono text-xs"
-              >
-                ✕ CLOSE
-              </button>
-            </div>
-
-            <div className="relative aspect-video bg-black rounded overflow-hidden border border-slate-800 flex items-center justify-center">
-              <img
-                src={webcamModal.webcam_url}
-                alt="Printer Webcam"
-                className="w-full h-full object-contain"
-                onError={(e) => {
-                  e.target.style.display = 'none';
-                  e.target.parentNode.innerHTML = '<div class="text-xs font-mono text-red-400 p-4 text-center">Webcam stream unreachable or offline. Check camera address.</div>';
-                }}
-              />
-            </div>
-          </div>
-        </div>
+        <CameraModal
+          printer={fleet.find((f) => f.id === webcamModal.id) || webcamModal}
+          onClose={() => setWebcamModal(null)}
+          onManage={() => { setCameraManager(webcamModal); setWebcamModal(null); }}
+        />
+      )}
+      {cameraManager && (
+        <CameraManager printer={cameraManager} onClose={() => setCameraManager(null)} onSaved={() => fetchAllData()} />
+      )}
+      {showCameraWall && (
+        <CameraWall printers={fleet} onClose={() => setShowCameraWall(false)} onOpen={(p) => { setShowCameraWall(false); setWebcamModal(p); }} />
       )}
 
       {/* MODAL: PA COLLISION RADAR / SCHEDULE WARNING POPUP */}
@@ -4390,13 +4532,25 @@ export default function App() {
           </div>
         </div>
       )}
+      {/* First-run setup (and YOUR PROFILE from the ⋮ menu) */}
+      {(needsSetup || showProfile) && (
+        <Setup
+          initial={profile}
+          editing={!needsSetup}
+          themes={THEMES}
+          currentTheme={themeAccent}
+          onTheme={applyTheme}
+          onDone={(p) => { setProfile(p); setShowProfile(false); }}
+          onCancel={() => setShowProfile(false)}
+        />
+      )}
       {/* Burn-in protection: hue drift, pixel shift, deep dim, screensaver */}
       <ScreenGuard
         settings={screenGuard}
         fleet={fleet}
         alerts={alerts}
         briefing={briefing}
-        paused={!!webcamModal}
+        paused={!!webcamModal || !!cameraManager || showCameraWall || needsSetup || showProfile}
         previewToken={saverPreview}
       />
     </div>

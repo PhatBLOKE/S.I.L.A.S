@@ -34,6 +34,9 @@ from .drive_commander import router as drive_router
 from .todoist import router as todoist_router, close_client as close_todoist_client
 from .pip_diary import router as pip_router
 from .learning import router as learning_router
+from .profile import router as profile_router, personalise, personalise_reply
+from .voice import router as voice_router
+from .webcams import router as webcam_router, clean_camera
 
 def get_local_ip() -> str:
     try:
@@ -110,6 +113,15 @@ app.include_router(pip_router)
 # LEARN tab: learning by style + Pomodoro sessions, stored in backend/data/learning.json
 app.include_router(learning_router)
 
+# First-run setup / user profile (name, pronouns, how Silas should help), stored in config.json
+app.include_router(profile_router)
+
+# Recorded speech for the test-chamber voice persona (Windows speech engine, see voice.py)
+app.include_router(voice_router)
+
+# Printer cameras: find them on Moonraker/OctoPrint, many per printer (see webcams.py)
+app.include_router(webcam_router)
+
 
 # Request Models
 class PrinterConfigModel(BaseModel):
@@ -120,6 +132,7 @@ class PrinterConfigModel(BaseModel):
     port: int = 7125
     api_key: Optional[str] = ""
     webcam_url: Optional[str] = ""
+    webcams: Optional[List[Dict[str, Any]]] = None
     enabled: bool = True
     notes: Optional[str] = ""
 
@@ -263,16 +276,25 @@ async def get_fleet_telemetry():
 def list_printers():
     return fleet_manager.public_configs()
 
+def _printer_payload(printer: PrinterConfigModel) -> Dict[str, Any]:
+    """Validate cameras and keep the old single webcam_url in step with the first one."""
+    data = printer.model_dump(exclude_none=True)
+    if printer.webcams is not None:
+        cams = [c for c in (clean_camera(x) for x in printer.webcams if isinstance(x, dict)) if c]
+        data["webcams"] = cams
+        data["webcam_url"] = (cams[0]["stream_url"] or cams[0]["snapshot_url"]) if cams else ""
+    return data
+
 @app.post("/api/printers")
 def create_printer(printer: PrinterConfigModel):
-    created = fleet_manager.add_printer(printer.model_dump())
+    created = fleet_manager.add_printer(_printer_payload(printer))
     hub.poke()
     created = {**created, "api_key": "\u2022\u2022\u2022\u2022" if created.get("api_key") else ""}
     return {"success": True, "printer": created}
 
 @app.put("/api/printers/{printer_id}")
 def edit_printer(printer_id: str, printer: PrinterConfigModel):
-    ok = fleet_manager.update_printer(printer_id, printer.model_dump())
+    ok = fleet_manager.update_printer(printer_id, _printer_payload(printer))
     if not ok:
         raise HTTPException(status_code=404, detail="Printer not found")
     hub.poke()
@@ -394,13 +416,13 @@ async def ai_chat(req: AIChatRequest):
         if req.printer_id:
             printer_ctx = await fleet_manager.get_single_status(req.printer_id)
         response = await get_ai_response(req.message, printer_ctx, humor_level=req.humor_level or 100)
-        return response
+        return personalise_reply(response)
     except Exception as e:
         import traceback
         traceback.print_exc()
         return {
             "source": "havoc_error_handler",
-            "reply": f"🤖 **[SILAS // TARS HUMOR: {req.humor_level or 100}%]**\n\nI hit an internal processing hitch while polling that telemetry: `{type(e).__name__}`.\n\nRelax, Karl. The firmware didn't burn down. Check your machine link or ask again."
+            "reply": f"🤖 **[SILAS // TARS HUMOR: {req.humor_level or 100}%]**\n\nI hit an internal processing hitch while polling that telemetry: `{type(e).__name__}`.\n\nRelax, {personalise('Karl')}. The firmware didn't burn down. Check your machine link or ask again."
         }
 
 @app.post("/api/ai/diagnose/{printer_id}")
@@ -412,7 +434,7 @@ async def ai_diagnose(printer_id: str):
     return {
         "printer_id": printer_id,
         "name": printer_ctx.get("name"),
-        "diagnosis": diagnosis
+        "diagnosis": personalise(diagnosis)
     }
 
 # Serve frontend build if dist folder exists

@@ -217,6 +217,38 @@ def list_drives():
                 pass
     return {"drives": drives}
 
+
+def _drive_presets(drive: str) -> List[Dict[str, str]]:
+    """Quick-pick folders for a drive: your work folder (set in setup), your Downloads /
+    Desktop / Documents if they're on this drive, then the drive's own top-level folders."""
+    from .profile import get_profile
+    root = drive[0].upper() + ":\\"
+    out: List[Dict[str, str]] = []
+    seen = set()
+
+    def add(name: str, path: str) -> None:
+        key = path.rstrip("\\/").lower()
+        if key in seen or not path[:2].upper() == root[:2] or not os.path.isdir(path):
+            return
+        seen.add(key)
+        out.append({"name": name, "path": path})
+
+    work = (get_profile().get("work_folder") or "").strip()
+    if work:
+        add("Work folder", work)
+    home = os.path.expanduser("~")
+    for sub_dir in ("Downloads", "Desktop", "Documents"):
+        add(f"Your {sub_dir}", os.path.join(home, sub_dir))
+    try:
+        tops = sorted(e for e in os.listdir(root)
+                      if not e.startswith((".", "$")) and os.path.isdir(os.path.join(root, e))
+                      and not is_protected(os.path.join(root, e)))
+    except Exception:
+        tops = []
+    for name in tops[:8]:
+        add(name, os.path.join(root, name))
+    return out
+
 @router.get("/api/drive/inspect")
 def inspect_drive(drive: str = "E:"):
     root_path = Path(f"{drive[0].upper()}:\\")
@@ -291,29 +323,7 @@ def inspect_drive(drive: str = "E:"):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    presets = []
-    d_letter = drive[0].upper()
-    if d_letter == "E":
-        presets = [
-            {"name": "PhatBLOKE 3d \\ To sort through", "path": "E:\\PhatBLOKE 3d\\To sort through"},
-            {"name": "PhatBLOKE 3d (Full Root)", "path": "E:\\PhatBLOKE 3d"},
-            {"name": "back up", "path": "E:\\back up"},
-            {"name": "Streaming", "path": "E:\\Streaming"},
-            {"name": "Capture", "path": "E:\\Capture"}
-        ]
-    elif d_letter == "F":
-        presets = [
-            {"name": "Misc", "path": "F:\\Misc"},
-            {"name": "Star Citizen", "path": "F:\\Star Citizen"},
-            {"name": "SteamLibrary", "path": "F:\\SteamLibrary"}
-        ]
-    elif d_letter == "C":
-        presets = [
-            {"name": "User Downloads", "path": "C:\\Users\\PhatBLOKE\\Downloads"},
-            {"name": "User Desktop", "path": "C:\\Users\\PhatBLOKE\\Desktop"},
-            {"name": "OctoPrint", "path": "C:\\OctoPrint"},
-            {"name": "Temp", "path": "C:\\Temp"}
-        ]
+    presets = _drive_presets(drive)
 
     return {
         "drive": drive,

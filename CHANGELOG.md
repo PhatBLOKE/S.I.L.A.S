@@ -3,6 +3,51 @@
 All notable changes to SILAS (formerly HAVOC / jarvis-pa) are recorded here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow [Semantic Versioning](https://semver.org/).
 
+## [2.9.0] - 2026-10-30
+
+### Added
+- Printer cameras. "Find cameras on printer" asks Moonraker (`/server/webcams/list`, the cameras Mainsail/Fluidd show) or OctoPrint (`/api/settings`) for its cameras, then tries the usual addresses (`/webcam/`, `/webcam2/`, `/webcam3/`, port 8080). Found cameras show live previews; tick the ones you want, or paste an address.
+  - In the Register New Machine form, and on every Fleet card (new 📷 button) for printers you already have.
+  - Several cameras per printer, each with a name, rotation (0/90/180/270) and flip; Moonraker's own rotation and flip settings are copied over.
+  - Viewer (👁️) has a tab per camera. MJPEG cameras play live; WebRTC/HLS cameras that offer a snapshot refresh once a second; others get an "open camera" link.
+  - 📹 Camera Wall on the Fleet tab: every camera at once with printer state and progress. Click one to open it.
+  - Relative and `localhost` camera addresses from Moonraker are rewritten to the printer's address so they work from this PC and your phone. Only http/https addresses are stored.
+- New endpoint `POST /api/webcams/discover`; printers now store a `webcams` list (the old `webcam_url` still works and follows the first camera).
+- Screen Guard pauses while a camera window or the camera wall is open.
+
+## [2.8.2] - 2026-10-24
+
+### Changed
+- Test-chamber voice now sounds properly synthetic. Windows' own speech engine (System.Speech, female voice, Zira if installed) records the line via the new `POST /api/voice/render` endpoint (`backend/voice.py`); the page then re-synthesises it in `frontend/src/voiceFx.js`:
+  - LPC vocoder: keeps the words, replaces the voice box with a clean pulse train.
+  - Pitch tracked, melody widened 1.7x, snapped hard to semitones and held in steps, lifted 3 semitones (the auto-tuned sing-song).
+  - A little of the original voice for clarity, slow flanger for a metallic edge, gentle high-pass.
+- If recording fails (or SILAS is not on Windows) it falls back to the browser voice with stepped pitch.
+- Text reaches PowerShell through an environment variable and `-EncodedCommand`, never the command line. Recordings cached in memory (last 24).
+
+## [2.8.1] - 2026-10-24
+
+### Added
+- Voice personas for spoken alerts. The alert log's Voice button now cycles STARSHIP / TEST CHAMBER / OFF, and each one says a test line when picked:
+  - Starship: the calm ship's-computer announcer (as before).
+  - Test chamber: a passive-aggressive lab AI in the style of GLaDOS. Female voice, phrase-by-phrase pitch steps for a not-quite-human cadence, and original snarky opening and closing lines picked at random.
+
+### Changed
+- Setup screen: pronouns are He / him and She / her (default He).
+- `silas_alarm_voice` now stores `starship`, `testchamber` or `off`; the old `on` value counts as starship.
+
+## [2.8.0] - 2026-10-22
+
+### Added
+- First-run setup screen: on a fresh install SILAS asks for your name, what Silas should call you, pronouns, an "about you" note for the AI, spelling (British/American), units (mm/in), an optional midday eating reminder, a work folder for the Drives tab, and a theme. Four short steps; name is the only required field.
+- "Your profile" in the ⋮ menu reopens the same screen to change details later.
+- Profile is stored in `backend/data/config.json` under `profile` (git-ignored). New endpoints: `GET/POST /api/profile`.
+
+### Changed
+- Everything that said "Karl" now uses the profile name: Silas's system prompt (plus pronouns and the "about you" note), chat replies, morning briefing greeting, printer alert quips, the Todoist plan context, chat labels and the Drives tab.
+- Drives quick-pick folders are no longer hard-coded: work folder, your Downloads/Desktop/Documents, then the drive's own top-level folders.
+- Wallpaper mode never shows the setup screen.
+
 ## [2.7.3] - 2026-10-22
 
 ### Added

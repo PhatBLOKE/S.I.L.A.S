@@ -3,6 +3,7 @@ import re
 from typing import List, Dict, Any, Optional
 from dateutil import parser as date_parser
 from dateutil import tz
+from .profile import user_name
 
 _DURATION_RE = re.compile(
     # Anchored so '3mm', '20mm_bracket' or 'm3_bolt' aren't mistaken for durations.
@@ -235,7 +236,7 @@ def generate_briefing(printers_telemetry: List[Dict[str, Any]], calendar_events:
         "date_display": now.strftime("%A, %B %d"),
         "time_display": now.strftime("%H:%M"),
         "persona": "Silas",
-        "greeting": f"Good day, Karl. Silas online.",
+        "greeting": f"Good day, {user_name()}. Silas online.",
         "agenda_summary": agenda_comment,
         "fleet_summary": fleet_comment,
         "next_event": upcoming_event,
