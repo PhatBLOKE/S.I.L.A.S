@@ -5,14 +5,24 @@
 [2.9.0] - 2026-10-30
 Added
 Printer cameras. "Find cameras on printer" asks Moonraker (/server/webcams/list, the cameras Mainsail/Fluidd show) or OctoPrint (/api/settings) for its cameras, then tries the usual addresses (/webcam/, /webcam2/, /webcam3/, port 8080). 
+
 Found cameras show live previews; tick the ones you want, or paste an address.
+
 In the Register New Machine form, and on every Fleet card (new 📷 button) for printers you already have.
+
 Several cameras per printer, each with a name, rotation (0/90/180/270) and flip; Moonraker's own rotation and flip settings are copied over.
+
 Viewer (👁️) has a tab per camera. MJPEG cameras play live; WebRTC/HLS cameras that offer a snapshot refresh once a second; others get an "open camera" link.
+
 📹 Camera Wall on the Fleet tab: every camera at once with printer state and progress. Click one to open it.
+
 Relative and localhost camera addresses from Moonraker are rewritten to the printer's address so they work from this PC and your phone. Only http/https addresses are stored.
+
+
 New endpoint POST /api/webcams/discover; printers now store a webcams list (the old webcam_url still works and follows the first camera).
+
 Screen Guard pauses while a camera window or the camera wall is open.
+
 Everything runs locally on this PC at `http://localhost:8000`. Nothing is hosted online.
 
 ---
