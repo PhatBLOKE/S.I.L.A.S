@@ -1,15 +1,17 @@
 # SILAS // Secure Interface for Local & Autonomous Systems
 
-**Version 2.5.0** · see [CHANGELOG.md](CHANGELOG.md) for what's new.
+**Version [2.9.0] · see [CHANGELOG.md](CHANGELOG.md) for what's new.
 
-A private, self-hosted command centre for an ADHD brain. One screen shows:
-- **what to do right now**: the Now project, today's time blocks, Todoist tasks as tiles
-- **the PIP diary**: a 30-second daily log of sleep, pain, meds and struggles
-- **learning**: sorted by style, studied in Pomodoro rounds
-- **the printers**: live status, alerts and a siren when a print stops
-- **the day**: the calendar, with warnings when a print will clash with it
-- **Silas**: a sarcastic, TARS-style AI co-pilot who nudges you back on task
-
+[2.9.0] - 2026-10-30
+Added
+Printer cameras. "Find cameras on printer" asks Moonraker (/server/webcams/list, the cameras Mainsail/Fluidd show) or OctoPrint (/api/settings) for its cameras, then tries the usual addresses (/webcam/, /webcam2/, /webcam3/, port 8080). Found cameras show live previews; tick the ones you want, or paste an address.
+In the Register New Machine form, and on every Fleet card (new 📷 button) for printers you already have.
+Several cameras per printer, each with a name, rotation (0/90/180/270) and flip; Moonraker's own rotation and flip settings are copied over.
+Viewer (👁️) has a tab per camera. MJPEG cameras play live; WebRTC/HLS cameras that offer a snapshot refresh once a second; others get an "open camera" link.
+📹 Camera Wall on the Fleet tab: every camera at once with printer state and progress. Click one to open it.
+Relative and localhost camera addresses from Moonraker are rewritten to the printer's address so they work from this PC and your phone. Only http/https addresses are stored.
+New endpoint POST /api/webcams/discover; printers now store a webcams list (the old webcam_url still works and follows the first camera).
+Screen Guard pauses while a camera window or the camera wall is open.
 Everything runs locally on this PC at `http://localhost:8000`. Nothing is hosted online.
 
 ---
